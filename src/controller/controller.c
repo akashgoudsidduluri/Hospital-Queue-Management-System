@@ -39,6 +39,7 @@ static void trim_whitespace(char *s);
 static void show_queue_analytics(PriorityQueue *q);
 static void show_queue_position(PriorityQueue *q, int patient_id);
 static int predict_wait_time(PriorityQueue *q, int severity);
+static int call_ml_predictor(int severity, int age, const char *arrival);
 static void detect_peak_hours(void);
 static void show_staff_performance(void);
 static void emergency_bypass(PriorityQueue *q);
@@ -311,6 +312,40 @@ static void trim_whitespace(char *s) {
 }
 
 /* ============================================
+   ML PREDICTOR HELPER 🧠
+   ============================================ */
+static int call_ml_predictor(int severity, int age, const char *arrival) {
+    char cmd[512];
+    
+    if (arrival && arrival[0]) {
+        snprintf(cmd, sizeof(cmd),
+                 "python src/tools/wait_predictor.py predict --severity %d --age %d --arrival \"%s\"",
+                 severity, age, arrival);
+    } else {
+        snprintf(cmd, sizeof(cmd),
+                 "python src/tools/wait_predictor.py predict --severity %d --age %d",
+                 severity, age);
+    }
+    
+    FILE *fp = popen(cmd, "r");
+    if (!fp) {
+        return -1;
+    }
+    
+    char line[256];
+    int predicted_sec = -1;
+    
+    while (fgets(line, sizeof(line), fp)) {
+        if (sscanf(line, "PREDICT_SEC:%d", &predicted_sec) == 1) {
+            break;
+        }
+    }
+    pclose(fp);
+    
+    return predicted_sec > 0 ? predicted_sec / 60 : -1;  /* convert to minutes */
+}
+
+/* ============================================
    FEATURE 1: REAL-TIME QUEUE ANALYTICS 📊
    ============================================ */
 static void show_queue_analytics(PriorityQueue *q) {
@@ -327,14 +362,13 @@ static void show_queue_analytics(PriorityQueue *q) {
     int total = pq_size(q);
     int critical = 0, serious = 0, normal = 0;
     
-    /* Count by severity - iterate through queue */
-    for (int i = 0; i < total; i++) {
-        Patient *p = pq_peek(q);
-        if (p) {
-            if (p->severity == 2) critical++;
-            else if (p->severity == 1) serious++;
-            else normal++;
-        }
+    /* Count by severity */
+    Patient *cur = q->head;
+    while (cur) {
+        if (cur->severity == 2) critical++;
+        else if (cur->severity == 1) serious++;
+        else normal++;
+        cur = cur->next;
     }
     
     printf("  📋 Total Patients: %d\n", total);
@@ -377,19 +411,18 @@ static void show_queue_position(PriorityQueue *q, int patient_id) {
 
 /* ============================================
    FEATURE 3: AI WAIT TIME PREDICTION 🤖
-   (Now uses actual historical data + current queue)
+   (ML-powered with fallback heuristic)
    ============================================ */
 static int predict_wait_time(PriorityQueue *q, int severity) {
     FILE *f = fopen("data/served.csv", "r");
     
     int total_queue = pq_size(q);
-    long historical_wait[3] = {0, 0, 0};  /* by severity */
+    long historical_wait[3] = {0, 0, 0};
     int count[3] = {0, 0, 0};
     char line[1024];
     
-    /* Calculate HISTORICAL average wait time per severity */
     if (f) {
-        fgets(line, sizeof(line), f);  /* skip header */
+        fgets(line, sizeof(line), f);
         
         while (fgets(line, sizeof(line), f)) {
             int sev;
@@ -404,7 +437,6 @@ static int predict_wait_time(PriorityQueue *q, int severity) {
         fclose(f);
     }
     
-    /* Count CURRENT queue by severity */
     int critical_in_queue = 0, serious_in_queue = 0, normal_in_queue = 0;
     Patient *cur = q->head;
     while (cur) {
@@ -414,12 +446,10 @@ static int predict_wait_time(PriorityQueue *q, int severity) {
         cur = cur->next;
     }
     
-    /* Calculate predicted wait for this patient */
     int predicted_wait = 0;
     
     switch(severity) {
         case 2: {
-            /* CRITICAL: skip all lower priority patients */
             int time_for_serious = serious_in_queue * ((count[1] > 0) ? (historical_wait[1] / count[1] / 60) : 5);
             int time_for_normal = normal_in_queue * ((count[0] > 0) ? (historical_wait[0] / count[0] / 60) : 3);
             predicted_wait = (time_for_serious + time_for_normal) / 2;
@@ -427,7 +457,6 @@ static int predict_wait_time(PriorityQueue *q, int severity) {
             break;
         }
         case 1: {
-            /* SERIOUS: wait for critical + some serious already here */
             int time_for_critical = critical_in_queue * ((count[2] > 0) ? (historical_wait[2] / count[2] / 60) : 10);
             int time_for_serious = serious_in_queue * ((count[1] > 0) ? (historical_wait[1] / count[1] / 60) : 5);
             predicted_wait = time_for_critical + time_for_serious;
@@ -435,7 +464,6 @@ static int predict_wait_time(PriorityQueue *q, int severity) {
             break;
         }
         case 0: {
-            /* NORMAL: wait for all higher priority */
             int time_for_critical = critical_in_queue * ((count[2] > 0) ? (historical_wait[2] / count[2] / 60) : 10);
             int time_for_serious = serious_in_queue * ((count[1] > 0) ? (historical_wait[1] / count[1] / 60) : 5);
             int time_for_normal = normal_in_queue * ((count[0] > 0) ? (historical_wait[0] / count[0] / 60) : 3);
@@ -563,14 +591,14 @@ static void emergency_bypass(PriorityQueue *q) {
     
     int count = 0;
     int total = pq_size(q);
+    Patient *cur = q->head;
     
-    /* Count critical patients */
-    for (int i = 0; i < total; i++) {
-        Patient *p = pq_peek(q);
-        if (p && p->severity == 2) {
-            printf("  ⚡ CRITICAL Patient ID %d: %s\n", p->id, p->name);
+    while (cur) {
+        if (cur->severity == 2) {
+            printf("  ⚡ CRITICAL Patient ID %d: %s\n", cur->id, cur->name);
             count++;
         }
+        cur = cur->next;
     }
     
     if (count == 0) {
@@ -597,15 +625,16 @@ static void view_queue_visual(PriorityQueue *q) {
     printf("  QUEUE ORDER:\n\n");
     
     int total = pq_size(q);
+    int i = 0;
+    Patient *cur = q->head;
     
-    for (int i = 0; i < total && i < 10; i++) {
-        Patient *p = pq_peek(q);
-        if (!p) break;
-        
-        const char *sev_icon = p->severity == 2 ? "🔴" : 
-                               p->severity == 1 ? "🟠" : "🟢";
+    while (cur && i < 10) {
+        const char *sev_icon = cur->severity == 2 ? "🔴" : 
+                               cur->severity == 1 ? "🟠" : "🟢";
         printf("  %s [#%d] %s (ID: %d, Age: %d)\n", 
-               sev_icon, i + 1, p->name, p->id, p->age);
+               sev_icon, i + 1, cur->name, cur->id, cur->age);
+        cur = cur->next;
+        i++;
     }
     
     if (total > 10) {
@@ -745,13 +774,11 @@ int main_loop() {
     printf("        HOSPITAL QUEUE MANAGEMENT SYSTEM\n");
     printf("=====================================================\n\n");
     
-    /* Authentication using auth_login_attempts from auth.c */
     if (!auth_login_attempts("data/users.csv", 3)) {
         printf("Authentication failed. Exiting.\n");
         return 1;
     }
 
-    /* Initialize queue and load existing data */
     PriorityQueue q;
     pq_init(&q);
 
@@ -760,7 +787,6 @@ int main_loop() {
 
     int totalAdded = 0, served = 0;
 
-    /* Main menu loop */
     for (;;) {
         printf("\n╔════════════════════════════════════════════╗\n");
         printf("║          MAIN MENU                         ║\n");
@@ -777,7 +803,7 @@ int main_loop() {
         printf("  10. ⏱️  Average Wait Times\n");
         printf("  11. 📊 Queue Analytics (NEW)\n");
         printf("  12. 🎯 Check Queue Position (NEW)\n");
-        printf("  13. 🤖 Predict Wait Time (NEW)\n");
+        printf("  13. 🤖 Predict Wait Time (NEW - ML)\n");
         printf("  14. 📈 Peak Hours Analysis (NEW)\n");
         printf("  15. 👨‍⚕️ Staff Performance (NEW)\n");
         printf("  16. 🚨 Emergency Bypass (NEW)\n");
@@ -791,7 +817,6 @@ int main_loop() {
         if (!read_int("Enter choice: ", &ch)) break;
 
         if (ch == 1) {
-            /* Register new patient */
             char name[NAME_LEN] = {0}, problem[PROB_LEN] = {0};
             int age = 0, sev = 0;
             long long phone_number = 0;
@@ -856,11 +881,9 @@ int main_loop() {
             }
 
         } else if (ch == 2) {
-            /* Show waiting list */
             view_show_list(&q);
 
         } else if (ch == 3) {
-            /* Call next patient */
             Patient *p = pq_dequeue(&q);
             if (p) {
                 printf("\n📞 CALLING NEXT PATIENT:\n\n");
@@ -883,7 +906,6 @@ int main_loop() {
             }
 
         } else if (ch == 4) {
-            /* View next patient (peek) */
             Patient *p = pq_peek(&q);
             if (p) {
                 printf("\n👀 NEXT PATIENT:\n\n");
@@ -893,7 +915,6 @@ int main_loop() {
             }
 
         } else if (ch == 5) {
-            /* Search patient by ID or name */
             int s = 0;
             if (!read_int("Search by (1) ID or (2) name? ", &s)) continue;
 
@@ -901,7 +922,6 @@ int main_loop() {
                 int id = 0;
                 if (!read_int("Enter ID: ", &id)) continue;
 
-                /* Search queue first */
                 Patient *p = pq_search_by_id(&q, id);
                 if (p) {
                     printf("\n[STATUS: WAITING IN QUEUE]\n\n");
@@ -909,7 +929,6 @@ int main_loop() {
                     continue;
                 }
 
-                /* Search served.csv */
                 FILE *f = fopen("data/served.csv", "r");
                 if (f) {
                     char line[1024];
@@ -944,7 +963,6 @@ int main_loop() {
                 printf("Enter name or part of name: ");
                 if (!read_line(key, sizeof(key))) continue;
 
-                /* Search queue */
                 Patient *p = pq_search_by_name(&q, key);
                 if (p) {
                     printf("\n[STATUS: WAITING IN QUEUE]\n\n");
@@ -952,7 +970,6 @@ int main_loop() {
                     continue;
                 }
 
-                /* Search served.csv - SHOW ALL MATCHES */
                 FILE *f = fopen("data/served.csv", "r");
                 if (f) {
                     char line[1024];
@@ -989,37 +1006,30 @@ int main_loop() {
             }
 
         } else if (ch == 6) {
-            /* Save waiting list to CSV */
             if (pq_save_csv(&q, DATA_FILE))
                 printf("✅ Saved to %s\n", DATA_FILE);
             else
                 printf("❌ Save failed\n");
 
         } else if (ch == 7) {
-            /* View statistics */
             view_show_stats(totalAdded, served, &q);
 
         } else if (ch == 8) {
-            /* Clear queue */
             clear_queue_with_confirmation(&q);
 
         } else if (ch == 9) {
-            /* View served history */
             view_served_history();
 
         } else if (ch == 10) {
-            /* Show average wait times */
             show_avg_waits();
 
         } else if (ch == 11) {
-            /* FEATURE 1: Queue Analytics */
             show_queue_analytics(&q);
             printf("Press Enter to continue...");
             char __tmpbuf[8];
             read_line(__tmpbuf, sizeof(__tmpbuf));
 
         } else if (ch == 12) {
-            /* FEATURE 2: Queue Position */
             int pid = 0;
             if (read_int("Enter Patient ID: ", &pid))
                 show_queue_position(&q, pid);
@@ -1027,66 +1037,84 @@ int main_loop() {
             read_line(__tmpbuf, sizeof(__tmpbuf));
 
         } else if (ch == 13) {
-            /* FEATURE 3: Predict Wait Time */
+            /* FEATURE 3: Predict Wait Time (ML-powered) */
             int sev = 0;
-            if (read_int("Enter severity (0=Normal, 1=Serious, 2=Critical): ", &sev)) {
-                int wait = predict_wait_time(&q, sev);
-                printf("\n🤖 PREDICTED WAIT TIME: ~%d minutes\n\n", wait);
+            int age = 30;
+            
+            if (!read_int("Enter severity (0=Normal, 1=Serious, 2=Critical): ", &sev)) continue;
+            if (!read_int("Enter age: ", &age)) age = 30;
+            
+            printf("\n");
+            printf("╔════════════════════════════════════════════╗\n");
+            printf("║    🤖 AI WAIT TIME PREDICTION (ML)         ║\n");
+            printf("╚════════════════════════════════════════════╝\n\n");
+            
+            const char *sev_name = sev == 2 ? "CRITICAL" : (sev == 1 ? "SERIOUS" : "NORMAL");
+            printf("  Severity Level: %s\n", sev_name);
+            printf("  Age: %d\n", age);
+            printf("  📊 Patients Ahead: %d\n\n", pq_size(&q));
+            
+            char arrival_now[TIME_LEN];
+            get_now_iso(arrival_now, sizeof(arrival_now));
+            int ml_wait = call_ml_predictor(sev, age, arrival_now);
+            
+            if (ml_wait > 0) {
+                printf("  🧠 ML MODEL PREDICTION:\n");
+                printf("  ⏱️  PREDICTED WAIT TIME: ~%d minutes\n\n", ml_wait);
+                printf("  ✅ Model trained on historical records\n\n");
+            } else {
+                int heur_wait = predict_wait_time(&q, sev);
+                printf("  ⚠️  ML model unavailable, using heuristic:\n");
+                printf("  ⏱️  ESTIMATED WAIT TIME: ~%d minutes\n\n", heur_wait);
+                printf("  💡 Tip: Train model with: python src/tools/wait_predictor.py train\n\n");
             }
+            
             char __tmpbuf[8];
             read_line(__tmpbuf, sizeof(__tmpbuf));
 
         } else if (ch == 14) {
-            /* FEATURE 4: Peak Hours */
             detect_peak_hours();
             printf("Press Enter to continue...");
             char __tmpbuf[8];
             read_line(__tmpbuf, sizeof(__tmpbuf));
 
         } else if (ch == 15) {
-            /* FEATURE 5: Staff Performance */
             show_staff_performance();
             printf("Press Enter to continue...");
             char __tmpbuf[8];
             read_line(__tmpbuf, sizeof(__tmpbuf));
 
         } else if (ch == 16) {
-            /* FEATURE 6: Emergency Bypass */
             emergency_bypass(&q);
             printf("Press Enter to continue...");
             char __tmpbuf[8];
             read_line(__tmpbuf, sizeof(__tmpbuf));
 
         } else if (ch == 17) {
-            /* FEATURE 7: Visual Queue */
             view_queue_visual(&q);
             printf("Press Enter to continue...");
             char __tmpbuf[8];
             read_line(__tmpbuf, sizeof(__tmpbuf));
 
         } else if (ch == 18) {
-            /* FEATURE 8: Daily Report */
             generate_daily_report();
             printf("Press Enter to continue...");
             char __tmpbuf[8];
             read_line(__tmpbuf, sizeof(__tmpbuf));
 
         } else if (ch == 19) {
-            /* FEATURE 9: Patient Journey */
             patient_journey_tracker();
             printf("Press Enter to continue...");
             char __tmpbuf[8];
             read_line(__tmpbuf, sizeof(__tmpbuf));
 
         } else if (ch == 20) {
-            /* FEATURE 10: System Health */
             system_health_check();
             printf("Press Enter to continue...");
             char __tmpbuf[8];
             read_line(__tmpbuf, sizeof(__tmpbuf));
 
         } else if (ch == 21) {
-            /* Exit */
             printf("\n🚪 Exiting... saving queue to %s\n", DATA_FILE);
             pq_save_csv(&q, DATA_FILE);
             pq_free_all(&q);
