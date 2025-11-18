@@ -23,10 +23,10 @@ MODEL_PATH = os.path.join(os.path.dirname(__file__), "wait_model.joblib")
 
 def find_served_csv():
     candidates = [
-        os.path.join(os.getcwd(), "data", "served.csv"),
-        os.path.join(os.path.dirname(__file__), "..", "..", "data", "served.csv"),
-        os.path.join(os.path.dirname(__file__), "..", "data", "served.csv"),
-        os.path.join(os.path.dirname(__file__), "data", "served.csv"),
+        os.path.join(os.getcwd(), "data", "training.csv"),
+        os.path.join(os.path.dirname(__file__), "..", "..", "data", "training.csv"),
+        os.path.join(os.path.dirname(__file__), "..", "data", "training.csv"),
+        os.path.join(os.path.dirname(__file__), "data", "training.csv"),
     ]
     for p in candidates:
         p = os.path.normpath(p)

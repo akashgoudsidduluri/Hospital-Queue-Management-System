@@ -158,7 +158,7 @@ static void show_avg_waits(void) {
     fclose(f);
 
     const char *names[3] = {"NORMAL", "SERIOUS", "CRITICAL"};
-    printf("\nAverage wait times (min):\n");
+    printf("\nAverage serving times (min):\n");
     for (int i = 0; i < 3; ++i) {
         if (cnt[i] == 0) {
             printf("%s: no data\n", names[i]);
@@ -800,7 +800,7 @@ int main_loop() {
         printf("  7.  📊 View Statistics\n");
         printf("  8.  🗑️  Clear Queue\n");
         printf("  9.  📜 View Served History\n");
-        printf("  10. ⏱️  Average Wait Times\n");
+        printf("  10. ⏱️  Average Serving Times\n");
         printf("  11. 📊 Queue Analytics (NEW)\n");
         printf("  12. 🎯 Check Queue Position (NEW)\n");
         printf("  13. 🤖 Predict Wait Time (NEW - ML)\n");
