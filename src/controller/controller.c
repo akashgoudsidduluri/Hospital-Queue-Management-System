@@ -312,37 +312,64 @@ static void trim_whitespace(char *s) {
 }
 
 /* ============================================
-   ML PREDICTOR HELPER 🧠
+   ML PREDICTOR HELPER
+   - Uses environment variable HOSP_PYTHON to pick Python executable (fallback: "python")
+   - Calls src/tools/wait_predictor.py predict and parses a machine-readable
+     ASCII-only line: PREDICT_SEC:<seconds>
+   - Returns minutes (rounded) or -1 on failure
    ============================================ */
 static int call_ml_predictor(int severity, int age, const char *arrival) {
-    char cmd[512];
-    
+    const char *pyenv = getenv("HOSP_PYTHON");
+    const char *pycmd = (pyenv && pyenv[0]) ? pyenv : "python";
+
+    char cmd[1024];
+    char escaped_arrival[512] = {0};
+
     if (arrival && arrival[0]) {
-        snprintf(cmd, sizeof(cmd),
-                 "python src/tools/wait_predictor.py predict --severity %d --age %d --arrival \"%s\"",
-                 severity, age, arrival);
+        /* Escape double-quotes and backslashes to safely embed into a quoted arg */
+        size_t ei = 0;
+        for (size_t i = 0; arrival[i] != '\0' && ei + 1 < sizeof(escaped_arrival); ++i) {
+            char c = arrival[i];
+            if (c == '"' || c == '\\') {
+                if (ei + 2 < sizeof(escaped_arrival)) {
+                    escaped_arrival[ei++] = '\\';
+                    escaped_arrival[ei++] = c;
+                }
+            } else if ((unsigned char)c < 32) {
+                /* skip control characters */
+            } else {
+                escaped_arrival[ei++] = c;
+            }
+        }
+        escaped_arrival[sizeof(escaped_arrival)-1] = '\0';
+
+        snprintf(cmd, sizeof(cmd), "%s src/tools/wait_predictor.py predict --severity %d --age %d --arrival \"%s\"",
+                 pycmd, severity, age, escaped_arrival);
     } else {
-        snprintf(cmd, sizeof(cmd),
-                 "python src/tools/wait_predictor.py predict --severity %d --age %d",
-                 severity, age);
+        snprintf(cmd, sizeof(cmd), "%s src/tools/wait_predictor.py predict --severity %d --age %d",
+                 pycmd, severity, age);
     }
-    
+
     FILE *fp = popen(cmd, "r");
-    if (!fp) {
-        return -1;
-    }
-    
-    char line[256];
+    if (!fp) return -1;
+
+    char line[512];
     int predicted_sec = -1;
-    
+
     while (fgets(line, sizeof(line), fp)) {
-        if (sscanf(line, "PREDICT_SEC:%d", &predicted_sec) == 1) {
+        char *tag = strstr(line, "PREDICT_SEC:");
+        if (tag) {
+            char *nstart = tag + strlen("PREDICT_SEC:");
+            long v = strtol(nstart, NULL, 10);
+            if (v > 0) predicted_sec = (int)v;
             break;
         }
     }
     pclose(fp);
-    
-    return predicted_sec > 0 ? predicted_sec / 60 : -1;  /* convert to minutes */
+
+    if (predicted_sec <= 0) return -1;
+    /* Round to nearest minute */
+    return (predicted_sec + 30) / 60;
 }
 
 /* ============================================

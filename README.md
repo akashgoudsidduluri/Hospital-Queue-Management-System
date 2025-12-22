@@ -31,39 +31,82 @@ gcc -I./src -o hospital_queue src/main.c src/controller/controller.c src/auth/au
 
 ---
 
-**Features (Use cases):**
-1. Register new patient (with severity: 2=Critical,1=Serious,0=Normal)
-2. View waiting list (ordered by severity and arrival)
-3. Serve next patient (dequeue)
-4. Search patient by ID or name
-5. View statistics (total added, waiting, served)
-6. Persist queue to CSV and load from CSV
-7. Patient Registration with authentication
-8. Priority-based Queue Management
-9. Real-time Analytics (10 NEW AI features)
-10. CSV Data Persistence
-11. Staff Performance Tracking
+## Hospital Queue Management System — C (MVC)
 
-**How to compile:**
+A compact hospital queue management system implemented in C using a simple MVC-style layout. The app demonstrates linked-list priority queue logic (higher severity patients are served first), CSV persistence for queues and served history, and a text-based console UI.
+
+This repository was built as a semester mini-project and is suitable for inclusion on a resume under Systems / C programming work.
+
+**Highlights**
+- Priority queue implemented in C (linked list)
+- Patient registration, prioritized serving, search, and CSV persistence
+- Simple analytics and served-history reporting
+- Clean separation: `model`, `view`, `controller`, `auth`, `util`
+
+Getting started
+---------------
+
+Prerequisites
+- GCC or a compatible C compiler (MinGW on Windows is fine)
+- Standard Unix tools or Windows terminal
+
+Build (recommended)
 ```bash
+# From repository root
 make
 ```
 
-**How to run:**
+Manual compile (single-command)
 ```bash
-./hospital_queue
+gcc -I./src -o hospital_queue.exe \
+  src/main.c src/controller/controller.c src/auth/auth.c \
+  src/model/patient.c src/model/queue.c src/view/view.c src/util/time_util.c
 ```
 
-**Project structure:**
-- src/: C source files
-  - model/: patient and queue (data layer)
-  - view/: console UI functions
-  - controller/: app logic (glue)
-  - util/: helpers (time, csv)
-- data/queue.csv : sample storage file created at runtime
-- docs/: documentation (abstract, algorithm, implementation, future scope, learning)
+Run
+```bash
+./hospital_queue.exe
+```
 
-**Team & Submission notes:**  
-- Two students per team. Make sure both present.  
-- Upload to each member's GitHub and GitLab.
+Authentication
+- A simple demo `users.csv` is provided in `data/`. For the classroom/demo build the passwords are blank; press Enter when prompted.
+
+Core features
+- Register new patient (severity: 2=Critical, 1=Serious, 0=Normal)
+- View and persist waiting list (`data/queue.csv`)
+- Serve (dequeue) next patient and append to `data/served.csv`
+- Search patients by ID or name
+- View served history and average wait times by severity
+- Additional analytics and utilities implemented in `controller.c`
+
+Project layout
+- `src/` — C source files
+  - `auth/` — authentication helpers
+  - `model/` — `patient` and `queue` implementations
+  - `view/` — console UI helpers
+  - `controller/` — application menu and workflows
+  - `util/` — small helpers (time formatting)
+- `data/` — CSV files used at runtime (`queue.csv`, `served.csv`, `users.csv`)
+- `docs/` — project documentation and notes
+
+Notes for reviewers / resume
+- This project showcases low-level systems programming, data-structure implementation (priority queue), debugging across platform (Windows/Unix), and CSV persistence.
+- If you want a short demo for interviews, run the program and show: register → view list → serve → view served history.
+
+Next steps (optional)
+- Port to Python + Streamlit for a web UI and ML integration (I prototyped a small Python predictor in `src/tools/` during development).
+- Add unit tests and a CI workflow to run builds automatically.
+
+Project report
+--------------
+A detailed project report (design, workflow, flowcharts, and example outputs/screenshots) is included in `docs/report.md`. You can convert it to PDF for submission using `pandoc` or your editor's Print → Save as PDF feature; the target file for submissions should be `docs/report.pdf`.
+
+To generate PDF with pandoc (optional):
+```bash
+# install pandoc if needed and a PDF engine like wkhtmltopdf or use LaTeX
+pandoc docs/report.md -o docs/report.pdf --pdf-engine=pdflatex
+```
+
+License
+- Add a LICENSE file if you want to publish this repository publicly.
 

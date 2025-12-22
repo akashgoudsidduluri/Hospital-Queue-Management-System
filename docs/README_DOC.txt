@@ -1,1 +1,0 @@
-Use this folder to store screenshots and any extra documentation. Include Review1 draft and final documentation.
