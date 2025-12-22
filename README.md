@@ -93,9 +93,7 @@ Notes for reviewers / resume
 - This project showcases low-level systems programming, data-structure implementation (priority queue), debugging across platform (Windows/Unix), and CSV persistence.
 - If you want a short demo for interviews, run the program and show: register → view list → serve → view served history.
 
-Next steps (optional)
-- Port to Python + Streamlit for a web UI and ML integration (I prototyped a small Python predictor in `src/tools/` during development).
-- Add unit tests and a CI workflow to run builds automatically.
+
 
 Project report
 --------------
@@ -109,4 +107,14 @@ pandoc docs/report.md -o docs/report.pdf --pdf-engine=pdflatex
 
 License
 - Add a LICENSE file if you want to publish this repository publicly.
+
+Screenshots
+-----------
+Quick visual demo (images stored in `docs/screenshots/`):
+
+![Register patient](docs/screenshots/register.png)
+
+![View waiting list](docs/screenshots/waiting_list.png)
+
+![Predicted waiting time](docs/screenshots/waiting_time.png)
 
