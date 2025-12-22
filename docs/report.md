@@ -73,7 +73,7 @@ Add PNG/JPEG screenshots to `docs/screenshots/` and reference them below. Exampl
 
 ![Predicting waiting time](screenshots/waiting_time.png)
 
-(Replace with your actual images.)
+
 
 ## Limitations
 - Single-process CLI, no concurrency
